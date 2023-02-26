@@ -42,9 +42,9 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          build-args:
-            - VERSION: ${{ steps.meta.outputs.version }}
-            - DATE: ${{ steps.date.outputs.date }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            DATE=${{ steps.date.outputs.date }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
