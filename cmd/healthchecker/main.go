@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/leightweight/healthchecker/internal/cli/check"
@@ -28,7 +29,9 @@ func main() {
 }
 
 func initLogger() {
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+	if !strings.EqualFold(os.Getenv("HEALTHCHECKER_NOPRETTY"), "true") {
+		log.Logger = log.Output(zerolog.NewConsoleWriter())
+	}
 }
 
 func initCli() *cli.App {
