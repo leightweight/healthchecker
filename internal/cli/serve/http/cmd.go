@@ -153,9 +153,14 @@ func check(ctx *cli.Context) error {
 		return err
 	}
 
+	truncate := len(responseContent)
+	if truncate > 50 {
+		truncate = 50
+	}
+
 	logger.
 		Debug().
-		Bytes("body", responseContent).
+		Bytes("body", responseContent[:truncate]).
 		Str("regex", responseRegex).
 		Msgf("Checking response body")
 
