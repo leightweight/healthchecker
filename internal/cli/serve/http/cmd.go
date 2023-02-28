@@ -4,21 +4,22 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/leightweight/healthchecker/internal/healthcheck"
+	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
 )
 
 func Command() *cli.Command {
 	return &cli.Command{
 		Name:   "http",
-		Usage:  "Calls an HTTP service to get its status",
-		Action: command,
+		Usage:  "Checks service status with an HTTP request",
+		Action: healthcheck.Build(check),
+
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:     "url",
@@ -35,21 +36,14 @@ func Command() *cli.Command {
 				EnvVars: []string{"CHECK_METHOD"},
 			},
 			&cli.StringSliceFlag{
-				Name:  "header",
-				Usage: "A header to add to the HTTP request",
-				//Aliases: []string{"h"},
+				Name:    "header",
+				Usage:   "A header to add to the HTTP request",
 				EnvVars: []string{"CHECK_HEADERS"},
 			},
 			&cli.BoolFlag{
 				Name:    "allow-redirects",
 				Usage:   "Allow HTTP response redirects",
 				EnvVars: []string{"CHECK_ALLOW_REDIRECTS"},
-			},
-			&cli.DurationFlag{
-				Name:    "timeout",
-				Usage:   "The amount of time to wait for a response",
-				Value:   30 * time.Second,
-				EnvVars: []string{"CHECK_TIMEOUT"},
 			},
 			&cli.StringFlag{
 				Name:    "status-code",
@@ -67,69 +61,119 @@ func Command() *cli.Command {
 	}
 }
 
-func command(ctx *cli.Context) error {
-	method := ctx.String("method")
+func check(ctx *cli.Context) error {
+	logger := log.With().Str("check", "http").Logger()
 	url := ctx.String("url")
+	method := ctx.String("method")
 	headers := ctx.StringSlice("header")
+	allowRedirects := ctx.Bool("allow-redirects")
 	statusCodeRegex := ctx.String("status-code")
 	responseRegex := ctx.String("response")
+	timeout := ctx.Duration("timeout")
+
+	logger.
+		Trace().
+		Bool("allowRedirects", allowRedirects).
+		Dur("timeout", timeout).
+		Msgf("Building HTTP client")
 
 	client := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if ctx.Bool("allow-redirects") {
+			if allowRedirects {
 				return nil
 			}
 			return errors.New("tried to redirect")
 		},
-		Timeout: ctx.Duration("timeout"),
+		Timeout: timeout,
 	}
+
+	logger.
+		Trace().
+		Str("method", method).
+		Str("url", url).
+		Msgf("Building HTTP request")
 
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
+		logger.Error().Err(err).Msgf("Error building HTTP request")
 		return err
 	}
+
+	logger.Trace().Msgf("Adding %d request headers", len(headers))
 
 	for _, header := range headers {
 		split := strings.SplitN(header, ":", 2)
 		if len(split) != 2 {
-			return fmt.Errorf("invalid request header '%s'", header)
+			logger.Error().Str("header", header).Msgf("Invalid HTTP header")
+			return fmt.Errorf("invalid http header '%s'", header)
 		}
 
-		req.Header.Add(split[0], strings.TrimLeft(split[1], " "))
+		key := split[0]
+		value := strings.TrimLeft(split[1], " ")
+
+		logger.
+			Trace().
+			Str("key", key).
+			Str("value", value).
+			Msgf("Adding request header")
+
+		req.Header.Add(key, value)
 	}
 
-	log.Printf("Executing HTTP request: %s %s", method, url)
+	logger.Trace().Msgf("Executing HTTP request")
+
 	res, err := client.Do(req)
 	if err != nil {
+		logger.Error().Err(err).Msgf("Error executing HTTP request")
 		return err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(res.Body)
+	defer res.Body.Close()
 
-	log.Printf("Check status code %d matches /%s/", res.StatusCode, statusCodeRegex)
+	logger.
+		Debug().
+		Int("statusCode", res.StatusCode).
+		Str("regex", statusCodeRegex).
+		Msgf("Checking status code")
+
 	matched, err := regexp.MatchString(statusCodeRegex, strconv.Itoa(res.StatusCode))
 	if err != nil {
+		logger.Error().Err(err).Msgf("Error checking status code")
 		return err
 	}
 	if !matched {
-		return fmt.Errorf("unexpected status code: %d", res.StatusCode)
+		logger.Warn().Msgf("Status code did not match")
+		return fmt.Errorf("incorrect status code")
 	}
+
+	logger.Trace().Msgf("Reading response body")
 
 	responseContent, err := io.ReadAll(res.Body)
 	if err != nil {
+		logger.Error().Err(err).Msgf("Error reading response body")
 		return err
 	}
 
-	log.Printf("Check response content matches /%s/", responseRegex)
+	truncate := len(responseContent)
+	if truncate > 50 {
+		truncate = 50
+	}
+
+	logger.
+		Debug().
+		Bytes("body", responseContent[:truncate]).
+		Str("regex", responseRegex).
+		Msgf("Checking response body")
+
 	matched, err = regexp.Match(responseRegex, responseContent)
 	if err != nil {
+		logger.Error().Err(err).Msgf("Error checking response body")
 		return err
 	}
 	if !matched {
-		return fmt.Errorf("unexpected response: %s", responseContent)
+		logger.Warn().Msgf("Response body did not match")
+		return fmt.Errorf("incorrect response body")
 	}
 
-	log.Printf("All checks succeeded")
+	logger.Info().Msgf("Health check succeeded")
 	return nil
 }

@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
+	"strings"
 	"time"
 
-	"github.com/leightweight/healthchecker/internal/cli/http"
-	"github.com/leightweight/healthchecker/internal/cli/wait"
+	"github.com/leightweight/healthchecker/internal/cli/check"
+	"github.com/leightweight/healthchecker/internal/cli/serve"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
 )
 
@@ -17,6 +19,22 @@ var (
 )
 
 func main() {
+	initLogger()
+	app := initCli()
+
+	err := app.Run(os.Args)
+	if err != nil {
+		os.Exit(1)
+	}
+}
+
+func initLogger() {
+	if !strings.EqualFold(os.Getenv("HEALTHCHECKER_NOPRETTY"), "true") {
+		log.Logger = log.Output(zerolog.NewConsoleWriter())
+	}
+}
+
+func initCli() *cli.App {
 	cli.HelpFlag = &cli.BoolFlag{
 		Name:               "help",
 		Usage:              "Show this help message",
@@ -30,20 +48,26 @@ func main() {
 		Aliases:            []string{"v"},
 	}
 
-	app := &cli.App{
+	return &cli.App{
 		Name:    "healthchecker",
 		Usage:   "Check the health of external services",
 		Version: fmt.Sprintf("%s (built %s)", Version, BuildTime),
 
+		Suggest:              true,
 		EnableBashCompletion: true,
 
-		Commands: []*cli.Command{
-			http.Command(),
-			wait.Command(),
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "socket",
+				Usage:   "The socket file for healthchecker to communicate over",
+				Value:   "/tmp/healthchecker.sock",
+				EnvVars: []string{"HEALTHCHECKER_SOCKET"},
+			},
 		},
-	}
 
-	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		Commands: []*cli.Command{
+			serve.Command(),
+			check.Command(),
+		},
 	}
 }
