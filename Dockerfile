@@ -19,4 +19,4 @@ USER nonroot
 COPY --from=build --chown=nonroot /go/src/healthchecker/healthchecker /usr/local/bin/
 
 ENTRYPOINT ["healthchecker"]
-CMD ["wait"]
+CMD ["--version"]
