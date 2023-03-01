@@ -1,4 +1,4 @@
-VERSION := 0.1.0-beta
+VERSION := $(shell git describe --tags --dirty)
 DATE    := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 IMPORT_PATH := github.com/leightweight/healthchecker
